@@ -1,67 +1,505 @@
 <app-navbar></app-navbar>
+
 <main class="agro-layout">
   <aside class="control-panel">
-    <div class="brand-block"><span>INIFAP</span><strong>Consulta térmica</strong><small>Análisis histórico por parcela</small></div>
+    <div class="brand-block">
+      <span>INIFAP</span>
+      <strong>Consulta térmica</strong>
+      <small>Análisis histórico por parcela</small>
+    </div>
+
     <form (ngSubmit)="consultar()">
       <h3>Periodo de consulta</h3>
-      <div class="date-pair"><input type="date" [(ngModel)]="fechaInicio" name="inicio" [min]="fechaMinima" [max]="fechaFin"><span>hasta</span><input type="date" [(ngModel)]="fechaFin" name="fin" [min]="fechaInicio" [max]="fechaMaxima"></div>
-      <label>Cultivo y variedad<select [(ngModel)]="cultivoId" name="cultivo">@for (c of cultivos; track c.id) { <option [ngValue]="c.id">{{ c.cultivo }} · {{ c.variedad }}</option> }</select></label>
-      <label>Método de frío<select [(ngModel)]="modeloVista" name="modelo" (ngModelChange)="alCambiarModelo()"><option value="automatico">Automático según región</option><option value="weinberger">Weinberger (HF)</option><option value="utah">Utah (UF)</option><option value="dinamico">Dinámico (PF)</option><option value="hfe">HFE experimental</option></select></label>
-      <div class="thresholds"><label>Temperatura base<input [value]="cultivoSeleccionado?.temperatura_base_c ?? 10" readonly><b>°C</b></label><label>Temperatura máxima<input [value]="cultivoSeleccionado?.temperatura_maxima_c ?? 35" readonly><b>°C</b></label></div>
-      <button class="primary" type="submit" [disabled]="cargando">{{ cargando ? 'Calculando…' : 'Actualizar análisis' }}</button>
+
+      <div class="date-pair">
+        <input
+          type="date"
+          [(ngModel)]="fechaInicio"
+          name="inicio"
+          [min]="fechaMinima"
+          [max]="fechaFin"
+        >
+
+        <span>hasta</span>
+
+        <input
+          type="date"
+          [(ngModel)]="fechaFin"
+          name="fin"
+          [min]="fechaInicio"
+          [max]="fechaMaxima"
+        >
+      </div>
+
+      <label>
+        Cultivo y variedad
+
+        <select
+          [(ngModel)]="cultivoId"
+          name="cultivo"
+          (ngModelChange)="alCambiarCultivo()"
+        >
+          @for (c of cultivos; track c.id) {
+            <option [ngValue]="c.id">
+              {{ c.cultivo }} · {{ c.variedad }}
+            </option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Método de frío
+
+        <select
+          [(ngModel)]="modeloVista"
+          name="modelo"
+          (ngModelChange)="alCambiarModelo()"
+        >
+          <option value="automatico">
+            Automático según región
+          </option>
+
+          <option value="weinberger">
+            Weinberger (HF)
+          </option>
+
+          <option value="utah">
+            Utah (UF)
+          </option>
+
+          <option value="dinamico">
+            Dinámico (PF)
+          </option>
+
+          <option value="hfe">
+            HFE experimental
+          </option>
+        </select>
+      </label>
+
+      <div class="thresholds">
+        <label>
+          Temperatura base
+
+          <input
+            type="number"
+            [(ngModel)]="temperaturaBase"
+            name="temperaturaBase"
+            step="0.1"
+            min="-30"
+            max="60"
+            required
+          >
+
+          <b>°C</b>
+        </label>
+
+        <label>
+          Temperatura máxima
+
+          <input
+            type="number"
+            [(ngModel)]="temperaturaMaxima"
+            name="temperaturaMaxima"
+            step="0.1"
+            min="-29.9"
+            max="70"
+            required
+          >
+
+          <b>°C</b>
+        </label>
+      </div>
+
+      <button
+        class="primary"
+        type="submit"
+        [disabled]="cargando"
+      >
+        {{ cargando ? 'Calculando…' : 'Actualizar análisis' }}
+      </button>
     </form>
-    <button class="back" type="button" (click)="volverMapa()">← Seleccionar otro punto</button>
-    <div class="sidebar-note"><b>Importante</b><p>UF y HFE son balances y pueden ser negativos. No representan horas frío negativas.</p></div>
+
+    <button
+      class="back"
+      type="button"
+      (click)="volverMapa()"
+    >
+      ← Seleccionar otro punto
+    </button>
+
+    <div class="sidebar-note">
+      <b>Importante</b>
+
+      <p>
+        UF y HFE son balances y pueden ser negativos.
+        No representan horas frío negativas.
+      </p>
+    </div>
   </aside>
 
   <section class="workspace">
-    <header class="page-title"><div><span>HISTÓRICO AGROCLIMÁTICO</span><h1>Tablero de frío y calor</h1><p>Reconstrucción horaria desde temperaturas mínimas y máximas diarias.</p></div><div class="version">Algoritmo {{ respuesta?.version_algoritmo || '2.0.1' }}</div></header>
-    @if (error) { <div class="error-banner">{{ error }}</div> }
+    <header class="page-title">
+      <div>
+        <span>HISTÓRICO AGROCLIMÁTICO</span>
+
+        <h1>Tablero de frío y calor</h1>
+
+        <p>{{ descripcionOrigenTemperatura }}</p>
+      </div>
+
+      <div class="version">
+        Algoritmo {{ respuesta?.version_algoritmo || '3.1.0' }}
+      </div>
+    </header>
+
+    @if (error) {
+      <div class="error-banner">
+        {{ error }}
+      </div>
+    }
 
     <div class="top-grid">
-      <article class="map-card card"><div class="card-title"><b>1. Ubicación de la parcela</b><button (click)="volverMapa()">Editar punto</button></div><div id="mini-map"></div><div class="coordinates"><span>Latitud <b>{{ lat | number:'1.4-4' }}</b></span><span>Longitud <b>{{ lon | number:'1.4-4' }}</b></span></div></article>
+      <article class="map-card card">
+        <div class="card-title">
+          <b>1. Ubicación de la parcela</b>
+
+          <button
+            type="button"
+            (click)="volverMapa()"
+          >
+            Editar punto
+          </button>
+        </div>
+
+        <div id="mini-map"></div>
+
+        <div class="coordinates">
+          <span>
+            Latitud
+            <b>{{ lat | number:'1.4-4' }}</b>
+          </span>
+
+          <span>
+            Longitud
+            <b>{{ lon | number:'1.4-4' }}</b>
+          </span>
+        </div>
+      </article>
+
       <div class="summary-area">
         <div class="metric-row">
+
+          <!-- TARJETA DE FRÍO -->
           <article class="metric-card cold cold-summary">
             <div class="cold-main">
-              <small>Horas frío acumuladas</small>
-              <strong>{{ resumen?.horas_frio_weinberger | number:'1.0-1' }}</strong>
-              <span>HF simples · temperatura ≤ 7.2 °C</span>
+              <small>Horas frío del periodo</small>
+
+              <strong>
+                {{ resumen?.horas_frio_weinberger | number:'1.0-1' }}
+              </strong>
+
+              <span>
+                HF simples · temperatura ≤ 7.2 °C
+              </span>
             </div>
+
             <div class="cold-model">
-              <small>Modelo aplicado: {{ etiquetaFrioPrincipal }}</small>
-              <b>{{ valorFrioPrincipal | number:'1.0-2' }} {{ unidadFrioPrincipal }}</b>
-              <button class="cold-help-button" type="button" (click)="mostrarExplicacionFrio = !mostrarExplicacionFrio">
-                {{ mostrarExplicacionFrio ? 'Cerrar explicación' : '¿Qué significa?' }}
+              <small>
+                Modelo aplicado: {{ etiquetaFrioPrincipal }}
+              </small>
+
+              <b>
+                {{ valorFrioPrincipal | number:'1.0-2' }}
+                {{ unidadFrioPrincipal }}
+              </b>
+
+              <button
+                class="cold-help-button"
+                type="button"
+                (click)="
+                  mostrarExplicacionFrio = !mostrarExplicacionFrio;
+                  mostrarExplicacionCalor = false
+                "
+              >
+                {{
+                  mostrarExplicacionFrio
+                    ? 'Cerrar explicación'
+                    : '¿Qué significa?'
+                }}
               </button>
             </div>
+
             <i>❄</i>
           </article>
-          <article class="metric-card heat"><div><small>Grados-hora de calor</small><strong>{{ resumen?.grados_hora_calor | number:'1.0-1' }}</strong><span>Base {{ respuesta?.cultivo_termico?.temperatura_base_c }} °C</span></div><i>◉</i></article>
+
+          <!-- TARJETA DE CALOR -->
+          <article class="metric-card heat cold-summary">
+            <div class="cold-main">
+              <small>Horas calor del periodo</small>
+
+              <strong>
+                {{ resumen?.horas_calor | number:'1.0-1' }}
+              </strong>
+
+              <span>
+                Horas con temperatura &gt;
+                {{ temperaturaBase | number:'1.0-1' }} °C
+              </span>
+            </div>
+
+            <div class="cold-model">
+              <small>Grados-hora de calor</small>
+
+              <b>
+                {{ resumen?.grados_hora_calor | number:'1.0-1' }}
+                GH
+              </b>
+
+              <button
+                class="cold-help-button"
+                type="button"
+                (click)="
+                  mostrarExplicacionCalor = !mostrarExplicacionCalor;
+                  mostrarExplicacionFrio = false
+                "
+              >
+                {{
+                  mostrarExplicacionCalor
+                    ? 'Cerrar explicación'
+                    : '¿Qué significa?'
+                }}
+              </button>
+            </div>
+
+            <i>◉</i>
+          </article>
         </div>
-        @if (mostrarExplicacionFrio) {
+
+        <!-- EXPLICACIÓN DEL CALOR -->
+        @if (mostrarExplicacionCalor) {
           <article class="cold-help card">
             <header>
-              <b>Por qué el resultado es {{ valorFrioPrincipal | number:'1.0-2' }} {{ unidadFrioPrincipal }}</b>
-              <button type="button" (click)="mostrarExplicacionFrio = false" aria-label="Cerrar">×</button>
+              <b>
+                Cómo se calculan las horas calor y los grados-hora
+              </b>
+
+              <button
+                type="button"
+                (click)="mostrarExplicacionCalor = false"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
             </header>
-            <p class="result-explanation">{{ explicacionResultadoFrio }}</p>
+
+            <p class="result-explanation">
+              {{ explicacionResultadoCalor }}
+            </p>
+
             <div class="model-explanations">
-              <p><b>Weinberger (HF):</b> cuenta cada hora estimada con temperatura ≤ 7.2 °C. Nunca produce valores negativos.</p>
-              <p><b>Utah (UF):</b> pondera el frío según el intervalo de temperatura y resta el efecto de horas cálidas. Su balance puede ser negativo.</p>
-              <p><b>Dinámico (PF):</b> simula dos etapas: formación de un intermediario de frío y conversión en una porción estable. El calor puede destruir el intermediario antes de consolidarse.</p>
-              <p><b>HFE experimental:</b> suma horas entre 0 y 10 °C y resta horas con 25 °C o más. Es un balance, no una cantidad literal de horas.</p>
+              <p>
+                <b>Horas calor:</b>
+                cada hora con temperatura superior a la base
+                cuenta como una hora, sin importar cuánto la supere.
+              </p>
+
+              <p>
+                <b>Grados-hora:</b>
+                por cada hora se calcula:
+                máximo de 0 y la diferencia entre la temperatura
+                limitada y la temperatura base.
+              </p>
+
+              <p>
+                <code>
+                  GH = máximo(0, mínimo(T, Tmáxima) − Tbase)
+                </code>
+              </p>
+
+              <p>
+                <b>Temperatura máxima:</b>
+                limita el aporte de las horas excesivamente cálidas.
+                Una temperatura superior al límite se calcula como
+                si fuera igual a la máxima seleccionada.
+              </p>
+
+              <p>
+                <b>Grados-día:</b>
+                se obtienen dividiendo los grados-hora acumulados
+                entre 24.
+              </p>
             </div>
           </article>
         }
-        <article class="region-card card"><div><span><small>Estado</small><b>{{ respuesta?.estado?.nombre || '—' }}</b></span><span><small>Elevación</small><b>{{ respuesta?.elevacion_m | number:'1.0-0' }} m</b></span><span><small>Zona térmica</small><b>{{ respuesta?.regionalizacion?.zona || '—' }}</b></span><span><small>Modelo regional</small><b>{{ respuesta?.regionalizacion?.modelo_regional_base || '—' }}</b></span><span><small>Modelo operativo</small><b>{{ respuesta?.regionalizacion?.modelo_recomendado || '—' }}</b></span><span><small>Calidad</small><b>{{ interpolados }} días interpolados</b></span></div>@if (recomendacion?.motivo_ajuste) { <p>{{ recomendacion?.motivo_ajuste }}</p> }</article>
+
+        <!-- EXPLICACIÓN DEL FRÍO -->
+        @if (mostrarExplicacionFrio) {
+          <article class="cold-help card">
+            <header>
+              <b>
+                Por qué el resultado es
+                {{ valorFrioPrincipal | number:'1.0-2' }}
+                {{ unidadFrioPrincipal }}
+              </b>
+
+              <button
+                type="button"
+                (click)="mostrarExplicacionFrio = false"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </header>
+
+            <p class="result-explanation">
+              {{ explicacionResultadoFrio }}
+            </p>
+
+            <div class="model-explanations">
+              <p>
+                <b>Weinberger (HF):</b>
+                cuenta cada hora con temperatura ≤ 7.2 °C.
+              </p>
+
+              <p>
+                <b>Utah (UF):</b>
+                pondera el frío y resta el efecto de horas cálidas.
+              </p>
+
+              <p>
+                <b>Dinámico (PF):</b>
+                modela la formación y consolidación de porciones
+                de frío.
+              </p>
+
+              <p>
+                <b>HFE experimental:</b>
+                suma horas entre 0 y 10 °C y resta horas con
+                25 °C o más.
+              </p>
+            </div>
+          </article>
+        }
+
+        <article class="region-card card">
+          <div>
+            <span>
+              <small>Estado</small>
+              <b>{{ respuesta?.estado?.nombre || '—' }}</b>
+            </span>
+
+            <span>
+              <small>Elevación</small>
+              <b>
+                {{ respuesta?.elevacion_m | number:'1.0-0' }} m
+              </b>
+            </span>
+
+            <span>
+              <small>Zona térmica</small>
+              <b>
+                {{ respuesta?.regionalizacion?.zona || '—' }}
+              </b>
+            </span>
+
+            <span>
+              <small>Modelo regional</small>
+              <b>
+                {{
+                  respuesta?.regionalizacion?.modelo_regional_base
+                    || '—'
+                }}
+              </b>
+            </span>
+
+            <span>
+              <small>Modelo operativo</small>
+              <b>
+                {{
+                  respuesta?.regionalizacion?.modelo_recomendado
+                    || '—'
+                }}
+              </b>
+            </span>
+
+            <span>
+              <small>Calidad</small>
+              <b>{{ interpolados }} días interpolados</b>
+            </span>
+          </div>
+
+          @if (recomendacion?.motivo_ajuste) {
+            <p>{{ recomendacion?.motivo_ajuste }}</p>
+          }
+        </article>
       </div>
     </div>
 
     <article class="chart-card card accumulated">
-      <div class="card-title"><div><b>2. Evolución de acumulados agroclimáticos</b><small>{{ fechaInicio }} a {{ fechaFin }} · ciclo iniciado {{ respuesta?.inicio_ciclo }}</small></div>@if (authService.puedeDescargar()) { <div class="actions"><button (click)="descargarPNG()">PNG</button><button (click)="descargarCSV()">CSV</button><button (click)="descargarPDF()">PDF</button></div> }</div>
-      <div class="chart"><canvas baseChart #accumChart="base-chart" [data]="accumData" [options]="accumOptions" type="line"></canvas></div>
-      <div class="model-strip"><span><b>HF</b>{{ resumen?.horas_frio_weinberger | number:'1.0-1' }}</span><span><b>UF</b>{{ resumen?.balance_unidades_frio_utah | number:'1.0-1' }}</span><span><b>PF</b>{{ resumen?.porciones_frio_dinamico | number:'1.0-2' }}</span><span><b>HFE</b>{{ resumen?.balance_hfe_experimental | number:'1.0-1' }}</span><span><b>Horas calor</b>{{ resumen?.horas_calor | number:'1.0-1' }}</span></div>
+      <div class="card-title">
+        <div>
+          <b>2. Evolución de acumulados agroclimáticos</b>
+
+          <small>
+            {{ fechaInicio }} a {{ fechaFin }}
+            · acumulado del periodo seleccionado
+          </small>
+        </div>
+
+        @if (authService.puedeDescargar()) {
+          <div class="actions">
+            <button type="button" (click)="descargarPNG()">
+              PNG
+            </button>
+
+            <button type="button" (click)="descargarCSV()">
+              CSV
+            </button>
+
+            <button type="button" (click)="descargarPDF()">
+              PDF
+            </button>
+          </div>
+        }
+      </div>
+
+      <div class="chart">
+        <canvas
+          baseChart
+          #accumChart="base-chart"
+          [data]="accumData"
+          [options]="accumOptions"
+          type="line"
+        ></canvas>
+      </div>
+
+      <div class="model-strip">
+        <span>
+          <b>HF</b>
+          {{ resumen?.horas_frio_weinberger | number:'1.0-1' }}
+        </span>
+
+        <span>
+          <b>UF</b>
+          {{ resumen?.balance_unidades_frio_utah | number:'1.0-1' }}
+        </span>
+
+        <span>
+          <b>PF</b>
+          {{ resumen?.porciones_frio_dinamico | number:'1.0-2' }}
+        </span>
+
+        <span>
+          <b>HFE</b>
+          {{ resumen?.balance_hfe_experimental | number:'1.0-1' }}
+        </span>
+
+        <span>
+          <b>Horas calor</b>
+          {{ resumen?.horas_calor | number:'1.0-1' }}
+        </span>
+      </div>
     </article>
   </section>
 </main>

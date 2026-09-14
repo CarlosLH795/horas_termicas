@@ -39,9 +39,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   lon = 0;
   fechaMinima = '1990-01-01';
   fechaMaxima = this.fechaAyer();
-  fechaInicio = this.inicioCicloActual();
+  fechaInicio = this.fechaHaceDias(30);
   fechaFin = this.fechaMaxima;
   cultivoId = 1;
+  temperaturaBase = 10;
+  temperaturaMaxima = 35;
   modeloVista: ModeloVista = 'automatico';
   cultivos: CultivoTermico[] = [];
   respuesta: RespuestaHorasTermicas | null = null;
@@ -49,6 +51,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   cargando = true;
   error = '';
   mostrarExplicacionFrio = false;
+  mostrarExplicacionCalor = false;
   private mapa?: L.Map;
 
   accumData: ChartData<'line'> = { labels: [], datasets: [] };
@@ -63,7 +66,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       yHeat: {
         position: 'right',
         grid: { drawOnChartArea: false },
-        title: { display: true, text: 'Grados-hora' },
+        title: { display: true, text: 'Horas calor' },
       },
     },
   };
@@ -95,11 +98,19 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     forkJoin({
       cultivos: this.api.getCultivosTermicos().pipe(timeout(30000)),
       termico: this.api
-        .getHorasTermicas(this.lat, this.lon, this.fechaInicio, this.fechaFin, this.cultivoId)
+        .getHorasTermicas(
+          this.lat, this.lon, this.fechaInicio, this.fechaFin, this.cultivoId,
+          this.temperaturaBase, this.temperaturaMaxima,
+        )
         .pipe(timeout(120000)),
     }).subscribe({
       next: ({ cultivos, termico }) => {
         this.cultivos = cultivos;
+        const cultivo = cultivos.find((x) => x.id === Number(this.cultivoId));
+        if (cultivo) {
+          this.temperaturaBase = cultivo.temperatura_base_c;
+          this.temperaturaMaxima = cultivo.temperatura_maxima_c;
+        }
         this.aplicarRespuesta(termico);
         this.cargando = false;
         this.cdr.detectChanges();
@@ -119,10 +130,21 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       this.error = 'El periodo máximo es de 366 días.';
       return;
     }
+    if (!Number.isFinite(this.temperaturaBase) || !Number.isFinite(this.temperaturaMaxima)) {
+      this.error = 'Las temperaturas base y máxima deben ser números válidos.';
+      return;
+    }
+    if (this.temperaturaMaxima <= this.temperaturaBase) {
+      this.error = 'La temperatura máxima debe ser mayor que la temperatura base.';
+      return;
+    }
     this.cargando = true;
     this.error = '';
     this.api
-      .getHorasTermicas(this.lat, this.lon, this.fechaInicio, this.fechaFin, this.cultivoId)
+      .getHorasTermicas(
+        this.lat, this.lon, this.fechaInicio, this.fechaFin, this.cultivoId,
+        this.temperaturaBase, this.temperaturaMaxima,
+      )
       .pipe(timeout(120000))
       .subscribe({
         next: (r) => {
@@ -172,7 +194,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       {
         label: 'Horas Frío acumuladas (Weinberger)',
         data: this.serie.map((dia) =>
-          Number(dia.acumulados_ciclo?.weinberger_hf ?? 0)
+          Number(
+            dia.acumulados_periodo?.weinberger_hf ??
+            dia.acumulados_ciclo?.weinberger_hf ??
+            0
+          )
         ),
         borderColor: '#11a7aa',
         backgroundColor: '#11a7aa',
@@ -181,9 +207,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         tension: 0.15,
       },
       {
-        label: 'Grados-hora de calor',
+        label: 'Horas calor acumuladas',
         data: this.serie.map(
-          (dia) => dia.acumulados_ciclo?.grados_hora_calor ?? 0
+          (dia) =>
+            dia.acumulados_periodo?.horas_calor ??
+            dia.acumulados_ciclo?.horas_calor ??
+            0
         ),
         borderColor: '#ff7a2b',
         backgroundColor: '#ff7a2b',
@@ -200,9 +229,32 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   alCambiarModelo(): void {
     this.crearGraficaAcumulada();
   }
+  alCambiarCultivo(): void {
+    const cultivo = this.cultivoSeleccionado;
+    if (!cultivo) return;
+    this.temperaturaBase = cultivo.temperatura_base_c;
+    this.temperaturaMaxima = cultivo.temperatura_maxima_c;
+  }
   get cultivoSeleccionado(): CultivoTermico | undefined {
     return this.cultivos.find((x) => x.id === Number(this.cultivoId));
   }
+  get descripcionOrigenTemperatura(): string {
+  const origen = this.respuesta?.origen_temperatura;
+
+  switch (origen) {
+    case 'wrf_horario':
+      return 'Datos horarios WRF interpolados a 1 km y corregidos por elevación.';
+
+    case 'mixto_wrf_horario_y_tmin_tmax':
+      return 'Serie mixta: datos horarios WRF con respaldo de Tmin/Tmax diarias.';
+
+    case 'tmin_tmax_diarias':
+      return 'Reconstrucción horaria desde temperaturas mínimas y máximas diarias.';
+
+    default:
+      return 'Análisis histórico de frío y calor con datos térmicos disponibles.';
+  }
+}
   get resumen() {
     return this.respuesta?.resumen;
   }
@@ -265,6 +317,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
           : `El balance es ${valor.toFixed(1)} HFE: suma una unidad por cada hora entre 0 y 10 °C y resta una por cada hora con 25 °C o más. Este indicador continúa marcado como experimental.`;
     }
     return '';
+  }
+  get explicacionResultadoCalor(): string {
+    const horas = this.resumen?.horas_calor ?? 0;
+    const gradosHora = this.resumen?.grados_hora_calor ?? 0;
+    const gradosDia = this.resumen?.grados_dia ?? gradosHora / 24;
+
+    return `En el periodo seleccionado hubo ${horas.toFixed(1)} horas con temperatura superior a la base de ${this.temperaturaBase.toFixed(1)} °C. Los ${gradosHora.toFixed(2)} grados-hora representan la suma, hora por hora, de cuánto superó la temperatura esa base. La temperatura utilizada se limita a ${this.temperaturaMaxima.toFixed(1)} °C. Al dividir los grados-hora entre 24 se obtienen ${gradosDia.toFixed(3)} grados-día.`;
   }
   get interpolados(): number {
     return this.serie.filter((x) => x.estado === 'interpolado').length;
@@ -347,11 +406,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     f.setDate(f.getDate() - 1);
     return this.fechaInput(f);
   }
-  private inicioCicloActual(): string {
+  private fechaHaceDias(dias: number): string {
     const f = new Date();
-    f.setDate(f.getDate() - 1);
-    const y = f.getMonth() >= 9 ? f.getFullYear() : f.getFullYear() - 1;
-    return `${y}-10-01`;
+    f.setDate(f.getDate() - dias);
+    return this.fechaInput(f);
   }
   private fechaInput(f: Date): string {
     return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
